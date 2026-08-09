@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>台股當沖損益與上下 10 檔試算</title>
+  <style>
+    :root {
+      --up-color: #e53935;
+      --down-color: #43a047;
+      --bg-color: #f5f7fa;
+      --card-bg: #ffffff;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background-color: var(--bg-color);
+      color: #333;
+      margin: 0;
+      padding: 20px;
+    }
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    h1 {
+      text-align: center;
+      margin-bottom: 20px;
+      color: #1a237e;
+    }
+    .card {
+      background: var(--card-bg);
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 15px;
+    }
+    .form-group {
+      display: flex;
+      flex-direction: column;
+    }
+    .form-group label {
+      font-size: 0.9rem;
+      margin-bottom: 5px;
+      font-weight: bold;
+      color: #555;
+    }
+    .form-group input, .form-group select {
+      padding: 8px 12px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 1rem;
+    }
+    .table-container {
+      overflow-x: auto;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: right;
+    }
+    th, td {
+      padding: 10px 12px;
+      border-bottom: 1px solid #e0e0e0;
+    }
+    th {
+      background-color: #f0f4f8;
+      color: #333;
+      font-weight: 600;
+    }
+    tr.current-price {
+      background-color: #e8eaf6;
+      font-weight: bold;
+    }
+    .text-profit { color: var(--up-color); font-weight: bold; }
+    .text-loss { color: var(--down-color); font-weight: bold; }
+    .text-center { text-align: center; }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <h1>台股當沖損益與上下 10 檔試算</h1>
+
+  <div class="card">
+    <div class="form-grid">
+      <div class="form-group">
+        <label for="action">交易方向</label>
+        <select id="action" onchange="calculate()">
+          <option value="long">做多 (先買後賣)</option>
+          <option value="short">做空 (先賣後買)</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="entryPrice">進場價格 (元)</label>
+        <input type="number" id="entryPrice" value="100" step="0.01" min="0.01" oninput="calculate()">
+      </div>
+      <div class="form-group">
+        <label for="shares">張數 (1張 = 1000股)</label>
+        <input type="number" id="shares" value="1" min="1" oninput="calculate()">
+      </div>
+      <div class="form-group">
+        <label for="discount">手續費折扣 (折)</label>
+        <input type="number" id="discount" value="2.8" step="0.1" min="0" max="10" oninput="calculate()">
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>上下 10 檔出場損益預估</h3>
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th class="text-center">檔位</th>
+            <th class="text-center">出場價格</th>
+            <th>漲跌幅</th>
+            <th>預估總手續費</th>
+            <th>預估交易稅/券資費</th>
+            <th>淨損益 (元)</th>
+            <th>報酬率 (%)</th>
+          </tr>
+        </thead>
+        <tbody id="resultBody">
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+  // 計算台股升降單位 (Tick Size)
+  function getTickSize(price) {
+    if (price < 10) return 0.01;
+    if (price < 50) return 0.05;
+    if (price < 100) return 0.1;
+    if (price < 500) return 0.5;
+    if (price < 1000) return 1.0;
+    return 5.0;
+  }
+
+  // 取得往上或往下跳格後的價格
+  function getPriceBySteps(basePrice, steps) {
+    let price = basePrice;
+    const direction = steps > 0 ? 1 : -1;
+    const count = Math.abs(steps);
+
+    for (let i = 0; i < count; i++) {
+      let tick = getTickSize(price);
+      // 若向下計算且恰好在檔位邊界，需調整 tick
+      if (direction === -1) {
+        if ([10, 50, 100, 500, 1000].includes(Number(price.toFixed(2)))) {
+          tick = getTickSize(price - 0.01);
+        }
+      }
+      price += direction * tick;
+      price = Math.round(price * 100) / 100;
+    }
+    return price;
+  }
+
+  function calculate() {
+    const action = document.getElementById('action').value;
+    const entryPrice = parseFloat(document.getElementById('entryPrice').value) || 0;
+    const sharesNum = parseInt(document.getElementById('shares').value) || 1;
+    const totalShares = sharesNum * 1000;
+    const discountRatio = (parseFloat(document.getElementById('discount').value) || 10) / 10;
+
+    const baseFeeRate = 0.001425;
+    const taxRate = 0.0015; // 當沖證交稅減半 0.15%
+    const borrowFeeRate = 0.0008; // 借券費/借券手續費預估 0.08%
+
+    const tbody = document.getElementById('resultBody');
+    tbody.innerHTML = '';
+
+    if (entryPrice <= 0) return;
+
+    // 產生 -10 到 +10 檔價格（共 21 檔）
+    const rows = [];
+    for (let i = 10; i >= -10; i--) {
+      const exitPrice = getPriceBySteps(entryPrice, i);
+      rows.push({ step: i, exitPrice: exitPrice });
+    }
+
+    rows.forEach(item => {
+      const exitPrice = item.exitPrice;
+      let buyPrice, sellPrice;
+
+      if (action === 'long') {
+        buyPrice = entryPrice;
+        sellPrice = exitPrice;
+      } else {
+        buyPrice = exitPrice;
+        sellPrice = entryPrice;
+      }
+
+      // 買進與賣出成交金額
+      const buyAmount = buyPrice * totalShares;
+      const sellAmount = sellPrice * totalShares;
+
+      // 手續費計算 (未滿 20 元算 20 元)
+      let buyFee = Math.floor(buyAmount * baseFeeRate * discountRatio);
+      if (buyFee < 20) buyFee = 20;
+
+      let sellFee = Math.floor(sellAmount * baseFeeRate * discountRatio);
+      if (sellFee < 20) sellFee = 20;
+
+      const totalFee = buyFee + sellFee;
+
+      // 稅費計算 (買賣方向不同，相關稅費項不同)
+      let taxAndBorrowFee = 0;
+      if (action === 'long') {
+        taxAndBorrowFee = Math.floor(sellAmount * taxRate); // 先買後賣：徵收證交稅
+      } else {
+        taxAndBorrowFee = Math.floor(sellAmount * taxRate) + Math.floor(sellAmount * borrowFeeRate); // 先賣後買：證交稅 + 券資費
+      }
+
+      // 淨損益與報酬率
+      const rawProfit = sellAmount - buyAmount;
+      const netProfit = rawProfit - totalFee - taxAndBorrowFee;
+      const returnRate = ((netProfit / buyAmount) * 100).toFixed(2);
+
+      const priceDiffPercent = (((exitPrice - entryPrice) / entryPrice) * 100).toFixed(2);
+
+      // 建立表格列
+      const tr = document.createElement('tr');
+      if (item.step === 0) tr.classList.add('current-price');
+
+      const profitClass = netProfit > 0 ? 'text-profit' : (netProfit < 0 ? 'text-loss' : '');
+      const stepText = item.step > 0 ? `+${item.step} 檔` : (item.step < 0 ? `${item.step} 檔` : '進場價');
+
+      tr.innerHTML = `
+        <td class="text-center">${stepText}</td>
+        <td class="text-center">${exitPrice.toFixed(2)}</td>
+        <td class="${priceDiffPercent > 0 ? 'text-profit' : (priceDiffPercent < 0 ? 'text-loss' : '')}">
+          ${priceDiffPercent > 0 ? '+' : ''}${priceDiffPercent}%
+        </td>
+        <td>$${totalFee.toLocaleString()}</td>
+        <td>$${taxAndBorrowFee.toLocaleString()}</td>
+        <td class="${profitClass}">$${netProfit.toLocaleString()}</td>
+        <td class="${profitClass}">${returnRate}%</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  // 初始計算
+  calculate();
+</script>
+
+</body>
+</html>
