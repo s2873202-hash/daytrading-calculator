@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>台股當沖損益與上下 10 檔試算 (含盈虧比目標)</title>
+  <title>台股當沖損益與自訂上下檔位試算 (含盈虧比目標)</title>
   <style>
     :root {
       --up-color: #e53935;
@@ -116,7 +116,7 @@
 <body>
 
 <div class="container">
-  <h1>台股當沖損益與上下 10 檔試算 (含盈虧比目標)</h1>
+  <h1>台股當沖損益與上下檔位試算 (含盈虧比目標)</h1>
 
   <div class="card">
     <div class="form-grid">
@@ -140,8 +140,12 @@
         <input type="number" id="discount" value="2.8" step="0.1" min="0" max="10" oninput="calculate()">
       </div>
       <div class="form-group">
+        <label for="ticksRange">顯示檔位範圍 (上下幾檔)</label>
+        <input type="number" id="ticksRange" value="10" min="1" max="50" oninput="calculate()">
+      </div>
+      <div class="form-group">
         <label for="stopTicks">停損設定 (退幾檔停損)</label>
-        <input type="number" id="stopTicks" value="1" min="1" max="10" oninput="calculate()">
+        <input type="number" id="stopTicks" value="1" min="1" max="50" oninput="calculate()">
       </div>
       <div class="form-group">
         <label for="rrRatio">期望盈虧比 (風險報酬比)</label>
@@ -157,7 +161,7 @@
   </div>
 
   <div class="card">
-    <h3>上下 10 檔出場損益預估</h3>
+    <h3 id="tableTitle">上下 10 檔出場損益預估</h3>
     <div class="table-container">
       <table>
         <thead>
@@ -252,8 +256,12 @@
     const sharesNum = parseInt(document.getElementById('shares').value) || 1;
     const totalShares = sharesNum * 1000;
     const discountRatio = (parseFloat(document.getElementById('discount').value) || 10) / 10;
+    const ticksRange = Math.max(1, parseInt(document.getElementById('ticksRange').value) || 10);
     const stopTicks = parseInt(document.getElementById('stopTicks').value) || 1;
     const rrRatioTarget = parseInt(document.getElementById('rrRatio').value) || 2;
+
+    // 更新表格標題
+    document.getElementById('tableTitle').innerText = `上下 ${ticksRange} 檔出場損益預估`;
 
     const tbody = document.getElementById('resultBody');
     tbody.innerHTML = '';
@@ -266,9 +274,9 @@
     const stopRes = calculateNetProfit(action, entryPrice, stopExitPrice, totalShares, discountRatio);
     const expectedRiskAmount = Math.abs(stopRes.netProfit);
 
-    // 2. 算好上下 10 檔數據
+    // 2. 算好上下 N 檔數據
     const rows = [];
-    for (let i = 10; i >= -10; i--) {
+    for (let i = ticksRange; i >= -ticksRange; i--) {
       const exitPrice = getPriceBySteps(entryPrice, i);
       const res = calculateNetProfit(action, entryPrice, exitPrice, totalShares, discountRatio);
       rows.push({ step: i, exitPrice, ...res });
@@ -277,7 +285,7 @@
     // 3. 尋找扣掉交易成本後，淨獲利能滿足 淨獲利 >= 風險金額 * rrRatioTarget 的第一個檔位
     let targetStep = null;
     if (action === 'long') {
-      for (let i = 1; i <= 10; i++) {
+      for (let i = 1; i <= ticksRange; i++) {
         const item = rows.find(r => r.step === i);
         if (item && item.netProfit >= expectedRiskAmount * rrRatioTarget) {
           targetStep = i;
@@ -285,7 +293,7 @@
         }
       }
     } else {
-      for (let i = -1; i >= -10; i--) {
+      for (let i = -1; i >= -ticksRange; i--) {
         const item = rows.find(r => r.step === i);
         if (item && item.netProfit >= expectedRiskAmount * rrRatioTarget) {
           targetStep = i;
